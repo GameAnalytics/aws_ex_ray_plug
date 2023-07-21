@@ -80,7 +80,7 @@ defmodule AwsExRay.Plug do
 
     else
 
-      trace = get_trace(conn)
+      trace = get_trace(conn, opts.name)
 
       {addr, forwarded} = find_client_ip(conn)
 
@@ -221,12 +221,18 @@ defmodule AwsExRay.Plug do
     Paths.include(opts.skip, conn)
   end
 
-  defp get_trace(conn) do
+  defp get_trace(conn, name) do
+    {:ok, hostname} = :inet.gethostname()
+    request_data = %{service_name: name,
+                     service_type: nil, # not sure if we can put anything meaningful here?
+                     http_method: String.upcase(Kernel.to_string(conn.method)),
+                     url_path: conn.request_path,
+                     host: hostname}
     with {:ok, value} <- find_trace_header(conn),
-         {:ok, trace} <- Trace.parse(value) do
+         trace = %Trace{} <- Trace.parse_or_new(value, request_data) do
       trace
     else
-      {:error, :not_found} -> Trace.new()
+      {:error, :not_found} -> Trace.new(request_data)
     end
   end
 
