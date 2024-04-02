@@ -128,9 +128,15 @@ defmodule AwsExRay.Plug do
 
         segment =
           if status >= 400 && status < 600 do
+            stacktrace = case conn.assigns do
+                           %{stack: stack = [_|_]} ->
+                             Enum.map(stack, &Stacktrace.to_map/1)
+                           _ ->
+                             Stacktrace.stacktrace()
+                         end
             put_response_error(segment,
                                status,
-                               Stacktrace.stacktrace())
+                               stacktrace)
           else
             segment
           end
