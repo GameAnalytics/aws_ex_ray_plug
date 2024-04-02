@@ -37,6 +37,15 @@ defmodule AwsExRay.Plug do
   If the incoming request has valid **X-Amzn-Trace-Id** header,
   it tries to take over parent **Trace**, or else, it starts a new **Trace**.
 
+  You can add annotations and metadata to the X-Ray segment:
+
+  ```elixir
+  conn
+  |> AwsExRay.Plug.add_annotations(%{foo: "bar"})
+  |> AwsExRay.Plug.add_metadata(%{baz: 42})
+  ```
+
+  If the request is not being traced, those two functions have no effect.
 
   """
 
@@ -101,7 +110,9 @@ defmodule AwsExRay.Plug do
       segment = AwsExRay.start_tracing(trace, opts.name)
               |> Segment.set_http_request(request_record)
 
-      register_before_send(conn, fn conn ->
+      conn
+      |> assign(__MODULE__, segment)
+      |> register_before_send(fn conn ->
 
         status = conn.status
 
@@ -109,6 +120,8 @@ defmodule AwsExRay.Plug do
 
         response_record =
           HTTPResponse.new(status, content_length)
+
+        segment = conn.assigns[__MODULE__]
 
         segment =
           Segment.set_http_response(segment, response_record)
@@ -130,6 +143,32 @@ defmodule AwsExRay.Plug do
 
     end
 
+  end
+
+  def add_annotations(conn, annotations) do
+    update_segment_if_present(
+      conn,
+      fn segment ->
+        Segment.add_annotations(segment, annotations)
+      end)
+  end
+
+  def add_metadata(conn, metadata) do
+    update_segment_if_present(
+      conn,
+      fn segment ->
+        Segment.add_metadata(segment, metadata)
+      end)
+  end
+
+  defp update_segment_if_present(conn, f) do
+    case Map.fetch(conn.assigns, __MODULE__) do
+      {:ok, segment} ->
+        new_segment = f.(segment)
+        assign(conn, __MODULE__, new_segment)
+      :error ->
+        conn
+    end
   end
 
   defp find_client_ip(conn) do
