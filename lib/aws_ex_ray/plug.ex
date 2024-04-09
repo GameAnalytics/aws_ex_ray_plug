@@ -37,10 +37,11 @@ defmodule AwsExRay.Plug do
   If the incoming request has valid **X-Amzn-Trace-Id** header,
   it tries to take over parent **Trace**, or else, it starts a new **Trace**.
 
-  You can add annotations and metadata to the X-Ray segment:
+  You can add user information, annotations and metadata to the X-Ray segment:
 
   ```elixir
   conn
+  |> AwsExRay.Plug.set_user("the_user_id")
   |> AwsExRay.Plug.add_annotations(%{foo: "bar"})
   |> AwsExRay.Plug.add_metadata(%{baz: 42})
   ```
@@ -149,6 +150,14 @@ defmodule AwsExRay.Plug do
 
     end
 
+  end
+
+  def set_user(conn, user) do
+    update_segment_if_present(
+      conn,
+      fn segment ->
+        Segment.set_user(segment, user)
+      end)
   end
 
   def add_annotations(conn, annotations) do
