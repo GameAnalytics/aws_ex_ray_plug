@@ -135,8 +135,10 @@ defmodule AwsExRay.Plug do
                            _ ->
                              Stacktrace.stacktrace()
                          end
+            reason = conn.assigns[:reason]
             put_response_error(segment,
                                status,
+                               reason,
                                stacktrace)
           else
             segment
@@ -212,47 +214,37 @@ defmodule AwsExRay.Plug do
     end
   end
 
-  defp put_response_error(seg, status, stack) do
-    case status do
+  defp put_response_error(seg, status, reason, stack) do
+    {flag_fields, default_message} =
+      case status do
 
-      code when code == 429 ->
+        429 ->
+          {[:throttle, :error], "Got 429"}
 
-        cause = Cause.new(:http_response_error, "Got 429", stack)
-        error = %Error{
-          cause:    cause,
-          throttle: true,
-          error:    true,
-          fault:    false,
-          remote:   false,
-        }
-        Segment.set_error(seg, error)
+        code when code >= 400 and code < 500 ->
+          {[:error], "Got 4xx"}
 
-      code when code >= 400 and code < 500 ->
-        cause = Cause.new(:http_response_error, "Got 4xx", stack)
-        error = %Error{
-          cause:    cause,
-          throttle: false,
-          error:    true,
-          fault:    false,
-          remote:   false,
-        }
-        Segment.set_error(seg, error)
+        code when code >= 500 and code < 600 ->
+          {[:fault], "Got 5xx"}
+      end
 
-      code when code >= 500 and code < 600 ->
-        cause = Cause.new(:http_response_error, "Got 5xx", stack)
-        error = %Error{
-          cause:    cause,
-          throttle: false,
-          error:    false,
-          fault:    true,
-          remote:   false,
-        }
-        Segment.set_error(seg, error)
+    {type, message} =
+      case reason do
+        %{__exception__: true, __struct__: struct_name} ->
+          {struct_name, Exception.format(:error, reason)}
+        _ ->
+          {:http_response_error, default_message}
+      end
 
-      _ ->
-        seg
-
-    end
+    cause = Cause.new(type, message, stack)
+    error = %Error{
+      cause:    cause,
+      throttle: :throttle in flag_fields,
+      error:    :error in flag_fields,
+      fault:    :fault in flag_fields,
+      remote:   false,
+    }
+    Segment.set_error(seg, error)
   end
 
   defp get_user_agent(conn) do
